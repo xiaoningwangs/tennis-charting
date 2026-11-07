@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tennis Match Recorder</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Tennis Recorder">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="icons/favicon-32.png">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif; }
+    .btn-active { border-color: #2563eb !important; background-color: #eff6ff !important; color: #1d4ed8 !important; font-weight: 700; }
+    button { touch-action: manipulation; }   /* no double-tap zoom while scoring */
+    input::placeholder { color: #94a3b8; }
+    input:focus::placeholder { color: transparent; }   /* placeholder hides once the field is selected */
+    .history-edit-grid select { min-width: 0; }
+  </style>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800 pb-12">
+<div id="app" class="max-w-md mx-auto bg-white min-h-screen shadow-xl flex flex-col border-x border-slate-200">
+
+  <header class="bg-slate-900 text-white p-4 sticky top-0 z-50 shadow-md">
+    <div class="flex justify-between items-start mb-2 gap-2">
+      <div class="min-w-0">
+        <h1 id="header-title" class="font-bold text-base text-blue-400 truncate"></h1>
+        <p id="header-subtitle" class="text-xs text-slate-400 truncate"></p>
+      </div>
+      <div class="flex flex-col items-end gap-1 shrink-0">
+        <div class="flex gap-1 text-[10px] font-bold">
+          <button id="lang-en" onclick="setLang('en')" class="px-2 py-0.5 rounded border">EN</button>
+          <button id="lang-zh" onclick="setLang('zh')" class="px-2 py-0.5 rounded border">中文</button>
+        </div>
+        <div class="flex items-center gap-1">
+          <span id="format-badge" class="hidden bg-blue-900/80 text-blue-300 text-[10px] px-2 py-1 rounded font-semibold border border-blue-700"></span>
+          <button id="settings-btn" onclick="openSettings()" data-i18n="settings" class="hidden bg-slate-700 hover:bg-slate-600 text-white text-[10px] px-2 py-1 rounded font-bold"></button>
+        </div>
+      </div>
+    </div>
+    <nav id="header-tabs" class="hidden grid grid-cols-3 gap-1 bg-slate-800 p-1 rounded-lg text-xs">
+      <button onclick="switchTab('tracker')" id="tab-btn-tracker" data-i18n="tabTracker"></button>
+      <button onclick="switchTab('history')" id="tab-btn-history" data-i18n="tabHistory"></button>
+      <button onclick="switchTab('analytics')" id="tab-btn-analytics" data-i18n="tabStats"></button>
+    </nav>
+  </header>
+
+  <!-- Setup / Settings -->
+  <section id="screen-setup" class="p-5 flex-1 flex flex-col justify-between space-y-6">
+    <div class="space-y-5">
+      <div id="resume-banner" class="hidden bg-green-50 border-2 border-green-500 rounded-xl p-4 space-y-2">
+        <p data-i18n="resumeTitle" class="text-xs font-extrabold text-green-900"></p>
+        <p id="resume-info" class="text-xs text-green-800"></p>
+        <div class="grid grid-cols-2 gap-2">
+          <button onclick="resumeMatch()" data-i18n="resume" class="py-2.5 bg-green-600 text-white rounded-lg text-xs font-bold"></button>
+          <button onclick="discardSaved()" data-i18n="discard" class="py-2.5 bg-white border border-slate-300 text-slate-600 rounded-lg text-xs font-bold"></button>
+        </div>
+      </div>
+      <div id="setup-edit-note" data-i18n="settingsNote" class="hidden bg-amber-50 border border-amber-300 text-amber-800 text-[11px] rounded-lg p-2.5"></div>
+
+      <div class="bg-blue-50/80 border-2 border-blue-500 rounded-xl p-4 shadow-sm space-y-3">
+        <div>
+          <label data-i18n="setFormat" class="block text-xs font-extrabold text-blue-900 uppercase tracking-wide mb-1.5"></label>
+          <select id="setup-format" class="w-full p-3 bg-white border border-blue-300 rounded-lg text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"></select>
+        </div>
+        <div>
+          <label data-i18n="adFormat" class="block text-xs font-extrabold text-blue-900 uppercase tracking-wide mb-1.5"></label>
+          <select id="setup-ad" class="w-full p-3 bg-white border border-blue-300 rounded-lg text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"></select>
+        </div>
+      </div>
+
+      <div>
+        <label data-i18n="matchName" class="block text-xs font-bold text-slate-600 mb-1"></label>
+        <input type="text" id="setup-match-name" data-i18n-ph="matchNamePh" class="w-full p-2.5 border rounded-lg text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none">
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">Player A</label>
+          <input type="text" id="setup-player-a" data-i18n-ph="phA" oninput="updateSetupServerLabels()" class="w-full p-2.5 border rounded-lg text-xs font-semibold">
+        </div>
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">Player B</label>
+          <input type="text" id="setup-player-b" data-i18n-ph="phB" oninput="updateSetupServerLabels()" class="w-full p-2.5 border rounded-lg text-xs font-semibold">
+        </div>
+      </div>
+
+      <div>
+        <label data-i18n="firstServer" class="block text-xs font-bold text-slate-600 mb-1.5"></label>
+        <div class="grid grid-cols-2 gap-3">
+          <button type="button" onclick="selectFirstServer('A')" id="btn-server-a" class="p-3 border rounded-xl text-xs font-bold text-center btn-active"></button>
+          <button type="button" onclick="selectFirstServer('B')" id="btn-server-b" class="p-3 border rounded-xl text-xs font-bold text-center"></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="space-y-2">
+      <button id="setup-main-btn" onclick="applySettings()" class="w-full py-3.5 bg-blue-600 text-white rounded-xl font-bold text-sm shadow-lg hover:bg-blue-700 transition"></button>
+      <button id="setup-new-btn" onclick="newMatch()" data-i18n="newMatch" class="hidden w-full py-3 bg-red-50 border border-red-300 text-red-700 rounded-xl font-bold text-xs"></button>
+      <button id="setup-back-btn" onclick="closeSettings()" data-i18n="backToMatch" class="hidden w-full py-3 bg-white border border-slate-300 text-slate-600 rounded-xl font-bold text-xs"></button>
+    </div>
+  </section>
+
+  <!-- Tracker -->
+  <section id="screen-tracker" class="hidden p-4 space-y-4">
+    <div class="bg-slate-900 text-white rounded-xl p-4 shadow-lg space-y-2 border border-slate-800">
+      <div class="text-[11px] text-blue-400 font-bold border-b border-slate-800 pb-1 flex justify-between">
+        <span data-i18n="scoreboard"></span>
+        <span id="tiebreak-indicator" class="text-amber-400 hidden"></span>
+      </div>
+      <div id="scoreboard-rows" class="space-y-1.5 text-xs"></div>
+      <div class="text-[11px] text-slate-400 pt-2 border-t border-slate-800 flex justify-between">
+        <span><span data-i18n="currentSet"></span>: <strong id="tracker-current-set" class="text-blue-400"></strong></span>
+        <button onclick="undoLastPoint()" data-i18n="undo" class="text-xs text-amber-400 hover:underline font-bold"></button>
+      </div>
+    </div>
+    <div id="draft-panel" class="bg-white rounded-xl p-4 border border-slate-200 shadow-sm space-y-4"></div>
+  </section>
+
+  <!-- History -->
+  <section id="screen-history" class="hidden p-4 space-y-3">
+    <div class="flex justify-between items-center pb-2 border-b">
+      <h2 data-i18n="histTitle" class="font-bold text-sm text-slate-800"></h2>
+      <span id="history-total-count" class="text-xs text-slate-500 font-semibold"></span>
+    </div>
+    <div id="history-card-list" class="space-y-2"></div>
+  </section>
+
+  <!-- Analytics -->
+  <section id="screen-analytics" class="hidden p-4 space-y-4">
+    <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">
+      <div class="flex justify-between items-center pb-2 border-b border-slate-200">
+        <h2 data-i18n="statsTitle" class="font-bold text-sm text-slate-800"></h2>
+        <span id="stats-vs" class="text-xs text-slate-400 font-medium"></span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs text-center border-collapse">
+          <thead>
+            <tr class="bg-slate-800 text-white font-bold">
+              <th id="stat-header-a" class="py-2.5 px-2 w-5/12 text-blue-300"></th>
+              <th data-i18n="statItem" class="py-2.5 px-1 w-2/12 text-slate-400 font-normal"></th>
+              <th id="stat-header-b" class="py-2.5 px-2 w-5/12 text-emerald-300"></th>
+            </tr>
+          </thead>
+          <tbody id="stats-body" class="divide-y divide-slate-100 font-medium text-slate-700"></tbody>
+        </table>
+      </div>
+      <p data-i18n="perfNote" class="text-[10px] text-slate-400"></p>
+    </div>
+    <div class="grid grid-cols-2 gap-3">
+      <button onclick="exportCSV()" data-i18n="exportCSV" class="py-3 bg-slate-800 text-white rounded-xl text-xs font-bold shadow hover:bg-slate-700 transition"></button>
+      <button onclick="exportRawData()" data-i18n="exportRaw" class="py-3 bg-blue-600 text-white rounded-xl text-xs font-bold shadow hover:bg-blue-700 transition"></button>
+    </div>
+  </section>
+</div>
+
+<script>
+/* ================= i18n ================= */
+const L = {
+  appTitle:['Tennis Match Recorder','网球比赛记录与分析'], hdrSetup:['Match setup','赛前设置'],
+  settings:['⚙ Settings','⚙ 设置'],
+  tabTracker:['Tracker','记分'], tabHistory:['History','历史'], tabStats:['Stats','统计'],
+  setFormat:['1) Set format *','1) 盘制 (Set Format) *'], adFormat:['2) Game format (Ad / No-Ad) *','2) 局制 (Ad / No-Ad) *'],
+  f_BO3:['Best of 3 full sets (7-pt tiebreak)','三盘两胜（标准盘，7分抢七）'],
+  f_BO3_STB10:['Best of 3 (3rd set: 10-pt super tiebreak)','三盘两胜（决胜盘：10分抢七）'],
+  f_FAST4_STB10:['Fast 4 (3rd set: 10-pt super tiebreak)','Fast 4（决胜盘：10分抢七）'],
+  f_FAST4_TB7:['Fast 4 (3rd set: 7-pt tiebreak)','Fast 4（决胜盘：7分抢七）'],
+  f_PRO8:['Pro Set (one set to 8 games)','抢八盘（单盘 8 局制）'],
+  ad:['Ad (win by 2 points in each game)','Ad 占先（每局需领先2分）'],
+  noad:['No-Ad (one point decides at 40-40)','No-Ad 无占先（40平一分定胜负）'],
+  matchName:['Match name','比赛名称'], resumeTitle:['Unfinished match found','发现未完成的比赛'], resume:['Resume match','继续这场比赛'], discard:['Discard','放弃并清除'],
+  overwriteConfirm:['A saved unfinished match exists. Starting a new match will overwrite it. Continue?','存在未完成的比赛记录，开始新比赛会覆盖它。是否继续？'],
+  discardConfirm:['Delete the saved match data? This cannot be undone.','确定删除已保存的比赛数据吗？此操作无法撤销。'],
+  newMatch:['Start a new match (clears current data)','开始新比赛（清除当前数据）'],
+  newConfirm:['Start a new match? The current match data will be deleted. Export the CSV / raw data first if you need it.','开始新比赛将删除当前比赛数据。如需保留，请先导出 CSV / 原始数据。是否继续？'],
+  phA:['e.g. Player A','例：球员 A'], phB:['e.g. Player B','例：球员 B'], matchNamePh:['e.g. 2026 L4','例：2026 L4'], defaultName:['Tennis Match','网球比赛'],
+  firstServer:['First server','首局发球选手'],
+  startMatch:['Start Match','开始比赛记录'], saveSettings:['Save & recalculate score','保存并重算比分'],
+  backToMatch:['Back to match (no changes)','返回比赛（不修改）'],
+  settingsNote:['Changing format, names or first server recalculates the whole score from the points already recorded.','修改赛制、姓名或首发球员后，将根据已记录的分数重新计算全部比分。'],
+  dropConfirm:['Under the new format the match ends earlier. The last {n} recorded point(s) will be discarded. Continue?','按新赛制比赛将提前结束，最后 {n} 个已记录的分将被丢弃。是否继续？'],
+  scoreboard:['REAL-TIME SCOREBOARD','实时比分'], tb:['⚠️ Tiebreak','⚠️ 抢七局'], mtb:['⚠️ Match tiebreak','⚠️ 决胜抢七'], dp:['🔔 Deciding point','🔔 金球分'],
+  currentSet:['Current set','当前盘'], undo:['↺ Undo last point','↺ 撤销上一分'], set:['Set','第'],
+  server:['Server','发球者'], court:['Court','发球区'], deuce:['Deuce side (right)','Deuce 侧 (右区)'], adSide:['Ad side (left)','Ad 侧 (左区)'],
+  s1:['1. Serve result','1. 发球情况'], s2:['2. Serve placement','2. 发球落点'], s3:['3. Last ball hit by','3. 最后一球击球队员'],
+  s4:['4. Position','4. 击球位置'], s5:['5. H (Hand)','5. H（正反手）'], s6:['6. Stroke','6. 击球类型 (Stroke)'],
+  s7:['7. Direction / Angle','7. 击球线路'], s8:['8. Out reason / Error detail','8. 出界/失误原因'], s9:['9. Outcome','9. 得分/失误结果'],
+  s10:['10. Net point','10. 上网情况'], s10b:['Net point winner','上网得分归属'],
+  df:['DF (Double fault)','DF (双误)'], wide:['Wide','外角'], body:['Body','追身'],
+  eIn:['In','In (界内)'], eNet:['Net','Net (挂网)'], eLong:['Long','Long (出底线)'], eWide:['Wide','Wide (出边线)'], none:['None','无'],
+  netNote:['Select one player, both, or neither','可选择单人、两人均上网或均未上网'], netOf:['{p} at net','{p} 上网'],
+  submit:['Submit Point','确认记录本分'],
+  histTitle:['Point-by-point history','逐分历史明细'], histCount:['{n} points','共 {n} 分'], histEmpty:['No points recorded yet','暂无比赛记录'],
+  edit:['✎ Edit','✎ 编辑'], ptLbl:['Point #{n} · Set {s} · Set pt {k}','第 {n} 分 · 第 {s} 盘 · 本盘第 {k} 分'],
+  serving:['Serve','发球'], won:['Won','得分'], dfMsg:['⚠️ Double fault','⚠️ 双误'],
+  saveRecalc:['Save & recalculate','保存并重算'], cancel:['Cancel','取消'],
+  editNote:['Editing a point recalculates servers, games, sets, tiebreaks and stats from point 1.','修改这一分后，后面的发球者、局数、盘数、抢七状态和统计会从第 1 分重新计算。'],
+  statsTitle:['Match statistics','比赛技术统计汇总'], statItem:['Stat','统计项目'],
+  st1in:['1st Serve %','一发进球率'], st1won:['1st Serve Won %','一发得分率'], st2in:['2nd Serve %','二发占比'], st2won:['2nd Serve Won %','二发得分率'],
+  stW:['Winners','制胜分'], stFE:['Forced Errors','受迫失误'], stUE:['Unforced Errors','非受迫失误'], stPerf:['Performance','综合表现'], perfNote:['Performance = Winners + opponent’s Forced Errors − Unforced Errors','综合表现 = 制胜分 + 对手受迫失误 − 非受迫失误'],
+  stDF:['Double Faults (DF)','双误次数 (DF)'], stIP:['IP count','IP 次数'], stNetPts:['Net Points','上网次数'], stNetWon:['Net Points Won','上网得分'],
+  exportCSV:['Export CSV','导出 CSV 表格'], exportRaw:['Export raw data','导出原始数据'],
+  matchOver:['🎉 Match over! Winner: {w}','🎉 比赛结束！胜者：{w}'], alreadyOver:['The match is already over!','比赛已结束！']
+};
+let lang = 'en';
+try { if (localStorage.getItem('tennis_lang') === 'zh') lang = 'zh'; } catch (e) {}
+const t = (k, v = {}) => (L[k] ? L[k][lang === 'en' ? 0 : 1] : k).replace(/\{(\w+)\}/g, (_, x) => v[x] ?? '');
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+
+/* ================= State ================= */
+// n = games to win a set (win by 2), tb = games-all score that triggers a 7-pt tiebreak,
+// need = sets to win the match, mtb = points of the match tiebreak that replaces set 3 (0 = none)
+const FORMATS = {
+  BO3:         { n: 6, tb: 6, need: 2, mtb: 0,  short: 'Bo3' },
+  BO3_STB10:   { n: 6, tb: 6, need: 2, mtb: 10, short: 'Bo3·STB10' },
+  FAST4_STB10: { n: 4, tb: 3, need: 2, mtb: 10, short: 'Fast4·STB10' },
+  FAST4_TB7:   { n: 4, tb: 3, need: 2, mtb: 7,  short: 'Fast4·TB7' },
+  PRO8:        { n: 8, tb: 8, need: 1, mtb: 0,  short: 'Pro Set 8' }
+};
+let matchConfig = { name: '', playerA: 'Player A', playerB: 'Player B', format: 'BO3', adMode: 'AD', firstServer: 'A' };
+let matchStarted = false, curTab = 'tracker', setupServer = 'A';
+let pointsHistory = [], replayingHistory = false, outcomeManual = false;
+const F = () => FORMATS[matchConfig.format];
+const other = p => (p === 'A' ? 'B' : 'A');
+const isMTB = i => F().mtb > 0 && i === 2;
+const newScoreState = () => ({ setsA:[0,0,0], setsB:[0,0,0], tbA:[null,null,null], tbB:[null,null,null], currentSetIdx:0, ptsA:0, ptsB:0,
+  isTiebreak:false, tbFirstServer:null, currentServer:matchConfig.firstServer, setFirstServer:matchConfig.firstServer, isMatchOver:false, winner:null });
+let scoreState = newScoreState();
+const DRAFT0 = { serveStatus:'1ST_IN', servePlacement:'BODY', lastShotPlayer:'A', shotPosition:'NR', hHand:'FH', stroke:'Ground',
+  shotDirection:'CC', outcome:'W(++)', errorDetail:'In', netPlayerA:false, netPlayerB:false, netOutcome:'NONE' };
+let draft = { ...DRAFT0 };
+
+/* ================= Option definitions ================= */
+const OPTS = {
+  serveStatus:[['1ST_IN','1st In'],['1ST_ACE','1st Ace'],['2ND_IN','2nd In'],['2ND_ACE','2nd Ace'],['DOUBLE_FAULT','$df']],
+  servePlacement:[['WIDE','$wide'],['BODY','$body'],['T','T']],
+  lastShotPlayer:[['A','@A'],['B','@B']],
+  shotPosition:['NR','OR','DR','Y','G'].map(x => [x, x]),
+  hHand:['FH','BH','OH'].map(x => [x, x]),
+  stroke:['Ground','Return','Slice','Drop','Approach','Volley','Lob','Pass'].map(x => [x, x]),
+  shotDirection:['CC','DL','IO','II','Middle'].map(x => [x, x]),
+  errorDetail:[['In','$eIn'],['Net','$eNet'],['Long','$eLong'],['Wide','$eWide']],
+  outcome:['W(++)','UE(--)','FE(-f)','IP','LET'].map(x => [x, x]),
+  netOutcome:[['A','@A'],['B','@B'],['NONE','$none']]
+};
+const SEC = { serveStatus:'s1', servePlacement:'s2', lastShotPlayer:'s3', shotPosition:'s4', hHand:'s5', stroke:'s6', shotDirection:'s7', errorDetail:'s8', outcome:'s9', netOutcome:'s10b' };
+const CLR = { 'DOUBLE_FAULT':'text-red-600 col-span-2', 'W(++)':'text-green-700', 'UE(--)':'text-red-700', 'FE(-f)':'text-orange-700', 'IP':'text-blue-700',
+  'LET':'text-slate-700 col-span-2', NR:'bg-red-50 text-red-700', OR:'bg-red-50 text-red-700', DR:'bg-red-50 text-red-700', Y:'bg-yellow-50 text-yellow-700', G:'bg-green-50 text-green-700' };
+const lab = s => s[0] === '$' ? t(s.slice(1)) : s === '@A' ? matchConfig.playerA : s === '@B' ? matchConfig.playerB : s;
+const ttl = k => t(SEC[k]).replace(/^\d+\.\s*/, '');
+
+/* ================= Language / screens ================= */
+function setLang(l) { lang = l; try { localStorage.setItem('tennis_lang', l); } catch (e) {} applyLang(); }
+
+function fillSelect(id, items, fallback) {
+  const el = $(id), cur = el.value || fallback;
+  el.innerHTML = items.map(([v, k]) => `<option value="${v}">${t(k)}</option>`).join('');
+  el.value = cur;
+}
+
+function applyLang() {
+  document.documentElement.lang = lang === 'en' ? 'en' : 'zh-CN';
+  document.title = t('appTitle');
+  document.querySelectorAll('[data-i18n]').forEach(el => el.textContent = t(el.dataset.i18n));
+  document.querySelectorAll('[data-i18n-ph]').forEach(el => el.placeholder = t(el.dataset.i18nPh));
+  fillSelect('setup-format', Object.keys(FORMATS).map(k => [k, 'f_' + k]), matchConfig.format);
+  fillSelect('setup-ad', [['AD','ad'],['NOAD','noad']], matchConfig.adMode);
+  $('setup-main-btn').textContent = t(matchStarted ? 'saveSettings' : 'startMatch');
+  ['en','zh'].forEach(l => $('lang-' + l).className = 'px-2 py-0.5 rounded border ' + (l === lang ? 'bg-blue-600 border-blue-500 text-white' : 'border-slate-600 text-slate-300'));
+  updateSetupServerLabels();
+  refreshHeader(); showResumeBanner();
+  renderTracker(); updateScoreboardUI(); renderHistoryTab(); updateAnalyticsUI(); setTabStyles();
+}
+
+function refreshHeader() {
+  $('header-title').innerText = matchStarted ? matchConfig.name : t('appTitle');
+  $('header-subtitle').innerText = matchStarted ? `${matchConfig.playerA} vs ${matchConfig.playerB}` : t('hdrSetup');
+  $('format-badge').innerText = `${F().short} · ${matchConfig.adMode === 'NOAD' ? 'No-Ad' : 'Ad'}`;
+}
+
+function showScreen(name) {
+  ['setup','tracker','history','analytics'].forEach(s => $('screen-' + s).classList.toggle('hidden', s !== name));
+  $('header-tabs').classList.toggle('hidden', !matchStarted || name === 'setup');
+  $('settings-btn').classList.toggle('hidden', !matchStarted || name === 'setup');
+  $('format-badge').classList.toggle('hidden', !matchStarted);
+}
+
+function setTabStyles() {
+  ['tracker','history','analytics'].forEach(x => $('tab-btn-' + x).className =
+    'py-1.5 rounded font-bold text-center ' + (x === curTab ? 'bg-blue-600 text-white' : 'text-slate-300 hover:text-white'));
+}
+
+function switchTab(tab) {
+  curTab = tab; showScreen(tab); setTabStyles();
+  if (tab === 'history') renderHistoryTab();
+  if (tab === 'analytics') updateAnalyticsUI();
+}
+
+/* ================= Auto-save / resume ================= */
+const SAVE_KEY = 'tennis_match_autosave_v1';
+function saveState() {
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify({ matchConfig, pointsHistory, matchStarted, savedAt: Date.now() })); } catch (e) {}
+}
+function loadSaved() {
+  try { const d = JSON.parse(localStorage.getItem(SAVE_KEY)); return d && d.matchStarted && d.matchConfig && Array.isArray(d.pointsHistory) ? d : null; } catch (e) { return null; }
+}
+function clearSaved() { try { localStorage.removeItem(SAVE_KEY); } catch (e) {} }
+
+function showResumeBanner() {
+  const d = loadSaved(), box = $('resume-banner'); if (!box) return;
+  box.classList.toggle('hidden', !d || matchStarted);
+  if (d) $('resume-info').innerText = `${d.matchConfig.name} · ${d.matchConfig.playerA} vs ${d.matchConfig.playerB} · ${t('histCount', { n: d.pointsHistory.length })} · ${new Date(d.savedAt).toLocaleString()}`;
+}
+
+function resumeMatch() {
+  const d = loadSaved(); if (!d) return;
+  matchConfig = d.matchConfig; pointsHistory = d.pointsHistory; matchStarted = true;
+  recalculateMatchFromHistory();
+  Object.assign(draft, DRAFT0); outcomeManual = false; curTab = 'tracker';
+  $('setup-main-btn').textContent = t('saveSettings');
+  showResumeBanner(); refreshHeader(); renderTracker(); updateScoreboardUI(); renderHistoryTab(); updateAnalyticsUI();
+  switchTab('tracker');
+}
+
+function discardSaved() { if (confirm(t('discardConfirm'))) { clearSaved(); showResumeBanner(); } }
+
+function newMatch() {
+  if (!confirm(t('newConfirm'))) return;
+  clearSaved();
+  matchConfig = { name: '', playerA: 'Player A', playerB: 'Player B', format: 'BO3', adMode: 'AD', firstServer: 'A' };
+  pointsHistory = []; matchStarted = false; scoreState = newScoreState();
+  Object.assign(draft, DRAFT0); outcomeManual = false; curTab = 'tracker';
+  ['setup-match-name','setup-player-a','setup-player-b'].forEach(id => $(id).value = '');
+  $('setup-format').value = 'BO3'; $('setup-ad').value = 'AD';
+  ['setup-edit-note','setup-back-btn','setup-new-btn'].forEach(id => $(id).classList.add('hidden'));
+  selectFirstServer('A');
+  showScreen('setup'); applyLang();
+}
+
+/* ================= Setup / settings ================= */
+function updateSetupServerLabels() {
+  $('btn-server-a').innerText = $('setup-player-a').value || 'Player A';
+  $('btn-server-b').innerText = $('setup-player-b').value || 'Player B';
+}
+function selectFirstServer(p) {
+  setupServer = p;
+  $('btn-server-a').classList.toggle('btn-active', p === 'A');
+  $('btn-server-b').classList.toggle('btn-active', p === 'B');
+}
+
+function openSettings() {
+  $('setup-match-name').value = matchConfig.name;
+  $('setup-player-a').value = matchConfig.playerA === 'Player A' ? '' : matchConfig.playerA;
+  $('setup-player-b').value = matchConfig.playerB === 'Player B' ? '' : matchConfig.playerB;
+  $('setup-format').value = matchConfig.format;
+  $('setup-ad').value = matchConfig.adMode;
+  selectFirstServer(matchConfig.firstServer);
+  updateSetupServerLabels();
+  $('setup-edit-note').classList.remove('hidden');
+  $('setup-back-btn').classList.remove('hidden');
+  $('setup-new-btn').classList.remove('hidden');
+  showScreen('setup');
+}
+function closeSettings() { switchTab(curTab); }
+
+function applySettings() {
+  const backup = { cfg: { ...matchConfig }, pts: JSON.parse(JSON.stringify(pointsHistory)) };
+  matchConfig.name = $('setup-match-name').value.trim() || t('defaultName');
+  matchConfig.playerA = $('setup-player-a').value.trim() || 'Player A';
+  matchConfig.playerB = $('setup-player-b').value.trim() || 'Player B';
+  matchConfig.format = $('setup-format').value;
+  matchConfig.adMode = $('setup-ad').value;
+  matchConfig.firstServer = setupServer;
+
+  if (!matchStarted) {
+    const old = loadSaved();
+    if (old && old.pointsHistory.length > 0 && !confirm(t('overwriteConfirm'))) { matchConfig = backup.cfg; return; }
+    matchStarted = true; pointsHistory = []; scoreState = newScoreState(); curTab = 'tracker';
+  } else {
+    const dropped = recalculateMatchFromHistory();
+    if (dropped > 0) {
+      if (!confirm(t('dropConfirm', { n: dropped }))) {
+        matchConfig = backup.cfg; pointsHistory = backup.pts; recalculateMatchFromHistory(); return;
+      }
+      pointsHistory.length = pointsHistory.length - dropped;
+    }
+  }
+  saveState();
+  $('setup-main-btn').textContent = t('saveSettings');
+  refreshHeader(); showResumeBanner(); renderTracker(); updateScoreboardUI(); renderHistoryTab(); updateAnalyticsUI();
+  switchTab(curTab);
+}
+
+/* ================= Tracker UI ================= */
+const btnGrp = (k, cols) => `<div class="grid grid-cols-${cols} gap-1.5 text-xs">` + OPTS[k].map(([v, l]) =>
+  `<button type="button" data-k="${k}" data-v="${v}" onclick="setDraft('${k}','${v}')" class="p-2 border rounded-lg font-bold ${CLR[v] || ''}">${esc(lab(l))}</button>`).join('') + '</div>';
+const secLbl = 'block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5';
+const sec = (k, cols) => `<div><label class="${secLbl}">${t(SEC[k])}</label>${btnGrp(k, cols)}</div>`;
+
+function renderTracker() {
+  $('draft-panel').innerHTML = `
+    <div class="flex justify-between items-center bg-blue-50 p-2.5 rounded-lg text-xs border border-blue-100">
+      <div>${t('server')}: <span id="srv-name" class="text-blue-700 font-extrabold"></span></div>
+      <div>${t('court')}: <span id="srv-court" class="text-slate-700 font-bold"></span></div>
+    </div>
+    ${sec('serveStatus', 2)}
+    ${sec('servePlacement', 3)}
+    <div id="shot-details-box" class="space-y-4 pt-3 border-t border-slate-100">
+      ${sec('lastShotPlayer', 2)}
+      ${sec('shotPosition', 5)}
+      ${sec('hHand', 3)}
+      ${sec('stroke', 4)}
+      ${sec('shotDirection', 5)}
+      ${sec('errorDetail', 4)}
+      ${sec('outcome', 3)}
+      <div class="pt-3 border-t border-slate-100">
+        <label class="${secLbl}">${t('s10')}</label>
+        <p class="text-[10px] text-slate-400 mb-2">${t('netNote')}</p>
+        <div class="grid grid-cols-2 gap-2 text-xs">
+          ${['A','B'].map(p => `<button type="button" id="net-btn-${p}" onclick="toggleNetPlayer('${p}')">
+            <span>${esc(t('netOf', { p: matchConfig['player' + p] }))}</span><span id="net-chk-${p}">✓</span></button>`).join('')}
+        </div>
+      </div>
+      <div id="net-outcome-box" class="hidden bg-emerald-50/50 p-2.5 rounded-xl border border-emerald-100">
+        <label class="block text-[11px] font-bold text-emerald-800 uppercase tracking-wider mb-1.5">${t('s10b')}</label>
+        ${btnGrp('netOutcome', 3)}
+      </div>
+    </div>
+    <button onclick="submitPoint()" class="w-full py-3.5 bg-green-600 text-white rounded-xl font-bold text-sm shadow hover:bg-green-700 transition">${t('submit')}</button>`;
+  updateDraftUI();
+}
+
+function toggleNetPlayer(p) { draft['netPlayer' + p] = !draft['netPlayer' + p]; updateDraftUI(); }
+
+function setDraft(k, v) {
+  draft[k] = v;
+  if (k === 'outcome') outcomeManual = true;
+  // In -> default W(++); Net/Long/Wide -> default UE(--), unless the user picked an outcome themselves
+  if (k === 'errorDetail' && !outcomeManual) draft.outcome = v === 'In' ? 'W(++)' : 'UE(--)';
+  updateDraftUI();
+}
+
+function updateDraftUI() {
+  if (!draft.netPlayerA && !draft.netPlayerB) draft.netOutcome = 'NONE';
+  document.querySelectorAll('#draft-panel [data-k]').forEach(b => b.classList.toggle('btn-active', String(draft[b.dataset.k]) === b.dataset.v));
+  const box = $('shot-details-box');
+  if (box) box.style.display = draft.serveStatus === 'DOUBLE_FAULT' ? 'none' : 'block';
+  ['A','B'].forEach(p => {
+    const b = $('net-btn-' + p), c = $('net-chk-' + p); if (!b) return;
+    const on = draft['netPlayer' + p];
+    b.className = 'p-2.5 rounded-lg flex items-center justify-between ' + (on ? 'border-2 border-emerald-600 bg-emerald-50 font-bold text-emerald-800 shadow-sm' : 'border font-medium text-slate-700');
+    c.className = 'w-4 h-4 rounded flex items-center justify-center text-[10px] font-bold ' + (on ? 'bg-emerald-600 text-white' : 'border border-slate-300 text-transparent');
+  });
+  $('net-outcome-box')?.classList.toggle('hidden', !(draft.netPlayerA || draft.netPlayerB));
+  if ($('srv-name')) {
+    $('srv-name').innerText = scoreState.currentServer === 'A' ? matchConfig.playerA : matchConfig.playerB;
+    $('srv-court').innerText = (scoreState.ptsA + scoreState.ptsB) % 2 === 0 ? t('deuce') : t('adSide');
+  }
+}
+
+/* ================= Scoring engine ================= */
+function determineWinnerFromRecord(p, server) {
+  const receiver = other(server);
+  if (p.serveStatus === '1ST_ACE' || p.serveStatus === '2ND_ACE') return server;
+  if (p.serveStatus === 'DOUBLE_FAULT') return receiver;
+  if (p.outcome === 'W(++)') return p.lastShotPlayer || server;
+  if (p.outcome === 'UE(--)' || p.outcome === 'FE(-f)') return other(p.lastShotPlayer);
+  return p.lastShotPlayer || server;
+}
+
+// Runs the engine for one point and records the game score if this point ended a game
+function applyPoint(p) {
+  const s = scoreState, i = s.currentSetIdx, n0 = s.setsA[i] + s.setsB[i];
+  const pd = formatTennisPoint(s.ptsA, s.ptsB, s.isTiebreak);
+  p.gamesBefore = `${s.setsA[i]}-${s.setsB[i]}`; p.pointsBefore = `${pd.a}-${pd.b}`;   // for the raw-data file
+  processPointLogic(p.winner);
+  p.gameScore = null;
+  if (s.setsA[i] + s.setsB[i] > n0) {
+    p.gameScore = s.tbA[i] != null
+      ? (isMTB(i) ? `${s.tbA[i]} - ${s.tbB[i]}` : `${s.setsA[i]} - ${s.setsB[i]} (${s.tbA[i]}-${s.tbB[i]})`)
+      : `${s.setsA[i]} - ${s.setsB[i]}`;
+  }
+}
+
+function submitPoint() {
+  if (scoreState.isMatchOver) { alert(t('alreadyOver')); return; }
+  const isDF = draft.serveStatus === 'DOUBLE_FAULT';
+  const isAce = draft.serveStatus === '1ST_ACE' || draft.serveStatus === '2ND_ACE';
+  const winner = determineWinnerFromRecord({ serveStatus: draft.serveStatus, lastShotPlayer: draft.lastShotPlayer, outcome: draft.outcome }, scoreState.currentServer);
+  const setNum = scoreState.currentSetIdx + 1;
+  const hasNet = draft.netPlayerA || draft.netPlayerB;
+
+  pointsHistory.push({
+    id: Date.now(), set: setNum,
+    pointNumInSet: pointsHistory.filter(p => p.set === setNum).length + 1,
+    pointNumOverall: pointsHistory.length + 1,
+    server: scoreState.currentServer, receiver: other(scoreState.currentServer),
+    serveStatus: draft.serveStatus, servePlacement: draft.servePlacement,
+    lastShotPlayer: isDF ? null : draft.lastShotPlayer,
+    triggerPlayer: (isAce || isDF) ? scoreState.currentServer : draft.lastShotPlayer,
+    triggerAction: isAce ? 'ACE' : isDF ? 'DOUBLE_FAULT' : draft.outcome,
+    shotPosition: isDF ? null : draft.shotPosition, hHand: isDF ? null : draft.hHand,
+    stroke: isDF ? null : draft.stroke, shotDirection: isDF ? null : draft.shotDirection,
+    outcome: isDF ? 'UE(--)' : draft.outcome,
+    errorDetail: isDF ? 'Double Fault' : draft.errorDetail,
+    netPlayerA: draft.netPlayerA, netPlayerB: draft.netPlayerB,
+    netOutcome: hasNet ? draft.netOutcome : 'NONE', winner
+  });
+
+  saveState();   // auto-save before scoring (state is rebuilt from the point list on resume)
+  applyPoint(pointsHistory[pointsHistory.length - 1]);
+  if (scoreState.isMatchOver) exportRawData();   // auto-save the raw data file when the match ends
+  // reset every option to its default for the next point
+  Object.assign(draft, DRAFT0);
+  outcomeManual = false;
+  updateDraftUI(); updateScoreboardUI();
+}
+
+function processPointLogic(winner) {
+  const s = scoreState, f = F();
+  winner === 'A' ? s.ptsA++ : s.ptsB++;
+
+  if (s.isTiebreak) {
+    if ((s.ptsA + s.ptsB) % 2 === 1) s.currentServer = other(s.currentServer);
+    const target = isMTB(s.currentSetIdx) ? f.mtb : 7;
+    if ((s.ptsA >= target || s.ptsB >= target) && Math.abs(s.ptsA - s.ptsB) >= 2) {
+      const i = s.currentSetIdx;
+      s.tbA[i] = s.ptsA; s.tbB[i] = s.ptsB;
+      (s.ptsA > s.ptsB ? s.setsA : s.setsB)[i]++;
+      finishSet(true);
+    }
+    return;
+  }
+
+  const a = s.ptsA, b = s.ptsB;
+  let gw = null;
+  if (matchConfig.adMode === 'NOAD') { if (a >= 4) gw = 'A'; else if (b >= 4) gw = 'B'; }
+  else if (a >= 4 && a - b >= 2) gw = 'A';
+  else if (b >= 4 && b - a >= 2) gw = 'B';
+
+  if (gw) {
+    (gw === 'A' ? s.setsA : s.setsB)[s.currentSetIdx]++;
+    s.ptsA = 0; s.ptsB = 0; s.currentServer = other(s.currentServer);
+    checkSetStatus();
+  }
+}
+
+function checkSetStatus() {
+  const s = scoreState, f = F(), gA = s.setsA[s.currentSetIdx], gB = s.setsB[s.currentSetIdx];
+  if (Math.max(gA, gB) >= f.n && Math.abs(gA - gB) >= 2) finishSet(false);
+  else if (gA === f.tb && gB === f.tb) { s.isTiebreak = true; s.ptsA = 0; s.ptsB = 0; s.tbFirstServer = s.currentServer; }
+}
+
+// Serving keeps alternating across sets: after a normal set the next server is whoever did not serve the last game
+// (currentServer has already been switched); after a tiebreak it is the opponent of the player who served first in the tiebreak.
+function finishSet(afterTiebreak) {
+  const s = scoreState, f = F();
+  s.isTiebreak = false; s.ptsA = 0; s.ptsB = 0;
+  if (afterTiebreak) s.currentServer = other(s.tbFirstServer);
+  s.setFirstServer = s.currentServer;
+
+  let wA = 0, wB = 0;
+  for (let i = 0; i <= s.currentSetIdx; i++) {
+    if (s.setsA[i] > s.setsB[i]) wA++; else if (s.setsB[i] > s.setsA[i]) wB++;
+  }
+  if (wA >= f.need || wB >= f.need) {
+    s.isMatchOver = true; s.winner = wA > wB ? 'A' : 'B';
+    if (!replayingHistory) alert(t('matchOver', { w: s.winner === 'A' ? matchConfig.playerA : matchConfig.playerB }));
+  } else {
+    s.currentSetIdx++;
+    if (isMTB(s.currentSetIdx)) { s.isTiebreak = true; s.tbFirstServer = s.currentServer; }   // 3rd set is a match tiebreak
+  }
+}
+
+function undoLastPoint() {
+  if (!pointsHistory.length) return;
+  pointsHistory.pop();
+  recalculateMatchFromHistory(); saveState();
+  updateDraftUI(); updateScoreboardUI(); renderHistoryTab(); updateAnalyticsUI();
+}
+
+function formatTennisPoint(a, b, tb) {
+  if (tb) return { a, b };
+  const m = ['0','15','30','40'];
+  if (matchConfig.adMode === 'NOAD') return { a: m[a] ?? '40', b: m[b] ?? '40' };
+  if (a >= 3 && b >= 3) {
+    if (a === b) return { a: 'Deuce', b: 'Deuce' };
+    return a > b ? { a: 'Ad', b: '40' } : { a: '40', b: 'Ad' };
+  }
+  return { a: m[a], b: m[b] };
+}
+
+function updateScoreboardUI() {
+  const rows = $('scoreboard-rows'); if (!rows) return;
+  const s = scoreState, pd = formatTennisPoint(s.ptsA, s.ptsB, s.isTiebreak);
+  const ind = $('tiebreak-indicator');
+  const deciding = !s.isTiebreak && matchConfig.adMode === 'NOAD' && s.ptsA === 3 && s.ptsB === 3;
+  ind.innerText = s.isTiebreak ? t(isMTB(s.currentSetIdx) ? 'mtb' : 'tb') : t('dp');
+  ind.classList.toggle('hidden', !(s.isTiebreak || deciding));
+  $('tracker-current-set').innerText = `${lang === 'en' ? 'Set ' : '第'}${s.currentSetIdx + 1}${lang === 'en' ? '' : '盘'}`;
+
+  const cell = (p, i) => {
+    const g = p === 'A' ? s.setsA[i] : s.setsB[i];
+    const own = p === 'A' ? s.tbA[i] : s.tbB[i], opp = p === 'A' ? s.tbB[i] : s.tbA[i];
+    let txt = g, sup = '';
+    if (own != null) { if (isMTB(i)) txt = own; else if (own < opp) sup = `<sup class="text-[8px]">${own}</sup>`; }
+    return `<span class="w-6 text-center font-semibold text-slate-300">${txt}${sup}</span>`;
+  };
+  const row = p => `
+    <div class="flex justify-between items-center text-xs">
+      <span class="${s.currentServer === p ? 'font-bold text-yellow-400' : ''}">${esc(matchConfig['player' + p])} ${s.currentServer === p ? '●' : ''}</span>
+      <div class="flex items-center space-x-1">
+        ${s.setsA.map((_, i) => i > s.currentSetIdx ? '' : cell(p, i)).join('')}
+        <span class="w-10 text-right font-black text-blue-400 text-sm ml-2">${pd[p.toLowerCase()]}</span>
+      </div>
+    </div>`;
+  rows.innerHTML = row('A') + row('B');
+}
+
+/* ================= History ================= */
+function renderHistoryTab() {
+  const list = $('history-card-list'); if (!list) return;
+  $('history-total-count').innerText = t('histCount', { n: pointsHistory.length });
+  if (!pointsHistory.length) { list.innerHTML = `<div class="p-8 text-center text-xs text-slate-400">${t('histEmpty')}</div>`; return; }
+
+  const sel = (key, val, label, opts) => `
+    <label class="block"><span class="block text-[10px] font-bold text-slate-500 mb-1">${label}</span>
+    <select data-history-key="${key}" class="w-full p-2 bg-white border border-slate-200 rounded-lg text-[11px]">
+      ${opts.map(([v, l]) => `<option value="${v}" ${String(val) === String(v) ? 'selected' : ''}>${esc(lab(l))}</option>`).join('')}
+    </select></label>`;
+  const o = (k, p, def) => sel(k, p[k] || def, ttl(k), OPTS[k]);
+
+  list.innerHTML = pointsHistory.slice().reverse().map((p, idx) => {
+    const i = pointsHistory.length - 1 - idx, editId = `history-edit-${p.id}`;
+    const sName = p.server === 'A' ? matchConfig.playerA : matchConfig.playerB;
+    const wName = p.winner === 'A' ? matchConfig.playerA : matchConfig.playerB;
+    const isDF = p.serveStatus === 'DOUBLE_FAULT';
+    return `
+      <div class="p-3 bg-white border border-slate-200 rounded-xl shadow-sm space-y-2 text-xs">
+        <div class="flex justify-between items-center border-b pb-1 text-[11px] text-slate-400">
+          <span>${t('ptLbl', { n: i + 1, s: p.set, k: p.pointNumInSet })}</span>
+          <button onclick="toggleHistoryEditor('${editId}')" class="text-blue-600 font-bold hover:underline">${t('edit')}</button>
+        </div>
+        <div class="flex justify-between font-bold text-slate-800">
+          <span>${t('serving')}: ${esc(sName)} [${p.serveStatus}]</span>
+          <span class="text-green-600">${t('won')}: ${esc(wName)}</span>
+        </div>
+        ${isDF ? `<div class="text-red-600 font-bold">${t('dfMsg')}</div>` : `
+          <div class="text-slate-600 text-[11px]">
+            ${esc(p.lastShotPlayer === 'A' ? matchConfig.playerA : matchConfig.playerB)} | Pos: <strong>${p.shotPosition || '-'}</strong> | H: <strong>${p.hHand || '-'}</strong> | Stroke: <strong>${p.stroke || '-'}</strong> | Dir: <strong>${p.shotDirection || '-'}</strong> | ${p.errorDetail || 'In'} | <strong class="text-blue-600">${p.outcome || '-'}</strong>
+          </div>`}
+        <div id="${editId}" class="hidden mt-2 pt-2 border-t border-slate-100 bg-slate-50 rounded-lg p-2.5 space-y-2">
+          ${o('serveStatus', p, '1ST_IN')}
+          ${o('servePlacement', p, 'WIDE')}
+          <div class="grid grid-cols-2 gap-2">${o('lastShotPlayer', p, 'A')}${o('shotPosition', p, 'NR')}</div>
+          <div class="grid grid-cols-2 gap-2">${o('hHand', p, 'FH')}${o('stroke', p, 'Ground')}</div>
+          <div class="grid grid-cols-2 gap-2">${o('shotDirection', p, 'CC')}${o('errorDetail', p, 'In')}</div>
+          ${o('outcome', p, 'W(++)')}
+          <div class="grid grid-cols-2 gap-2 pt-1">
+            ${['A','B'].map(x => `<label class="flex items-center gap-2 p-2 bg-white border rounded-lg">
+              <input id="${editId}-net-${x.toLowerCase()}" type="checkbox" ${p['netPlayer' + x] ? 'checked' : ''}>
+              <span>${esc(t('netOf', { p: matchConfig['player' + x] }))}</span></label>`).join('')}
+          </div>
+          ${o('netOutcome', p, 'NONE')}
+          <div class="grid grid-cols-2 gap-2 pt-1">
+            <button onclick="saveHistoryPoint(${i})" class="py-2 bg-blue-600 text-white rounded-lg font-bold">${t('saveRecalc')}</button>
+            <button onclick="toggleHistoryEditor('${editId}')" class="py-2 bg-white border rounded-lg font-bold text-slate-600">${t('cancel')}</button>
+          </div>
+          <p class="text-[10px] text-slate-400">${t('editNote')}</p>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function toggleHistoryEditor(id) { $(id)?.classList.toggle('hidden'); }
+
+function saveHistoryPoint(index) {
+  const p = pointsHistory[index]; if (!p) return;
+  const editId = `history-edit-${p.id}`, editor = $(editId); if (!editor) return;
+  const get = k => editor.querySelector(`[data-history-key="${k}"]`)?.value;
+  ['serveStatus','servePlacement','lastShotPlayer','shotPosition','hHand','stroke','shotDirection','errorDetail','outcome'].forEach(k => p[k] = get(k));
+  p.netPlayerA = $(`${editId}-net-a`)?.checked || false;
+  p.netPlayerB = $(`${editId}-net-b`)?.checked || false;
+  p.netOutcome = get('netOutcome') || 'NONE';
+  recalculateMatchFromHistory(); saveState();
+  updateDraftUI(); updateScoreboardUI(); renderHistoryTab(); updateAnalyticsUI();
+}
+
+// Replays every recorded point from point 1. Returns how many trailing points were
+// not applied because the match already ended under the current format.
+function recalculateMatchFromHistory() {
+  const records = pointsHistory.map(p => JSON.parse(JSON.stringify(p)));
+  replayingHistory = true;
+  scoreState = newScoreState();
+  let processed = 0;
+
+  records.forEach((p, index) => {
+    if (scoreState.isMatchOver) return;
+    const setNum = scoreState.currentSetIdx + 1, server = scoreState.currentServer;
+    const isAce = p.serveStatus === '1ST_ACE' || p.serveStatus === '2ND_ACE';
+    p.id = p.id || Date.now() + index;
+    p.set = setNum;
+    p.pointNumInSet = records.slice(0, index).filter(x => x.set === setNum).length + 1;
+    p.pointNumOverall = index + 1;
+    p.server = server; p.receiver = other(server);
+
+    if (p.serveStatus === 'DOUBLE_FAULT') {
+      Object.assign(p, { lastShotPlayer: null, triggerPlayer: server, triggerAction: 'DOUBLE_FAULT', shotPosition: null,
+        hHand: null, stroke: null, shotDirection: null, outcome: 'UE(--)', errorDetail: 'Double Fault' });
+    } else {
+      p.errorDetail = (p.errorDetail && p.errorDetail !== 'None' && p.errorDetail !== 'Double Fault') ? p.errorDetail : 'In';
+      p.triggerPlayer = isAce ? server : p.lastShotPlayer;
+      p.triggerAction = isAce ? 'ACE' : p.outcome;
+    }
+    p.netOutcome = (p.netPlayerA || p.netPlayerB) ? (p.netOutcome || 'NONE') : 'NONE';
+    p.winner = determineWinnerFromRecord(p, server);
+    applyPoint(p);
+    pointsHistory[index] = p;
+    processed = index + 1;
+  });
+
+  replayingHistory = false;
+  return records.length - processed;
+}
+
+/* ================= Stats ================= */
+function calculatePlayerStats(k) {
+  const sp = pointsHistory.filter(p => p.server === k);
+  const pct = (n, d) => d > 0 ? Math.round(n / d * 100) : 0;
+  const first = sp.filter(p => p.serveStatus === '1ST_IN' || p.serveStatus === '1ST_ACE');
+  const secondIn = sp.filter(p => p.serveStatus === '2ND_IN' || p.serveStatus === '2ND_ACE');
+  const f1w = first.filter(p => p.winner === k).length, f2w = secondIn.filter(p => p.winner === k).length;
+
+  const aces = sp.filter(p => p.serveStatus === '1ST_ACE' || p.serveStatus === '2ND_ACE').length;
+  const shot = o => pointsHistory.filter(p => p.serveStatus !== 'DOUBLE_FAULT' && p.lastShotPlayer === k && p.outcome === o).length;
+  const dfs = sp.filter(p => p.serveStatus === 'DOUBLE_FAULT').length;
+
+  const net = pointsHistory.filter(p => k === 'A' ? p.netPlayerA : p.netPlayerB);
+  const netWon = net.filter(p => (p.netOutcome && p.netOutcome !== 'NONE') ? p.netOutcome === k : p.winner === k).length;
+
+  return {
+    firstServeInStr: `${pct(first.length, sp.length)}% (${first.length}/${sp.length})`,
+    firstServeWonStr: `${pct(f1w, first.length)}% (${f1w}/${first.length})`,
+    secondServeInStr: `${pct(secondIn.length, sp.length)}% (${secondIn.length}/${sp.length})`,  // 2nd In / total serve points
+    secondServeWonStr: `${pct(f2w, secondIn.length)}% (${f2w}/${secondIn.length})`,
+    winnersCount: aces + shot('W(++)'), forcedErrors: shot('FE(-f)'), unforcedErrors: dfs + shot('UE(--)'), dfCount: dfs, ipCount: shot('IP'),
+    netPointsCount: net.length, netPointsWonStr: `${netWon}/${net.length} (${pct(netWon, net.length)}%)`
+  };
+}
+
+const STAT_ROWS = [['firstServeInStr','st1in'],['firstServeWonStr','st1won'],['secondServeInStr','st2in'],['secondServeWonStr','st2won'],['dfCount','stDF'],
+  ['winnersCount','stW'],['forcedErrors','stFE'],['unforcedErrors','stUE'],['ipCount','stIP'],['netPointsCount','stNetPts'],['netPointsWonStr','stNetWon'],['performance','stPerf']];
+
+function allStats() {
+  const a = calculatePlayerStats('A'), b = calculatePlayerStats('B');
+  const perf = (x, y) => { const v = x.winnersCount + y.forcedErrors - x.unforcedErrors; return (v > 0 ? '+' : '') + v; };
+  a.performance = perf(a, b); b.performance = perf(b, a);
+  return { a, b };
+}
+
+function updateAnalyticsUI() {
+  const { a, b } = allStats();
+  $('stat-header-a').innerText = matchConfig.playerA;
+  $('stat-header-b').innerText = matchConfig.playerB;
+  $('stats-vs').innerText = `${matchConfig.playerA} vs ${matchConfig.playerB}`;
+  $('stats-body').innerHTML = STAT_ROWS.map(([f, k]) => `<tr>
+    <td class="py-2.5 px-2 font-bold text-blue-700">${a[f]}</td>
+    <td class="py-2.5 px-1 bg-slate-50 text-[11px] text-slate-500 font-semibold">${t(k)}</td>
+    <td class="py-2.5 px-2 font-bold text-emerald-700">${b[f]}</td></tr>`).join('');
+}
+
+/* ================= Export ================= */
+// Two side-by-side sections (one per player). Each point is listed under the player who hit the last ball.
+// Columns per section: point # in set | last-ball info (5 H, 6 Stroke initial, 7 Direction, 4 Position, 8 Out reason initial) | 9 Outcome
+function exportCSV() {
+  const q = s => `"${String(s).replace(/"/g, '""')}"`;
+  const rows = [[q(matchConfig.playerA), '', '', '', q(matchConfig.playerB), '', ''],
+                ['#', 'Last ball', 'Outcome', '', '#', 'Last ball', 'Outcome']];
+  let cur = 0;
+  pointsHistory.forEach(p => {
+    if (p.set !== cur) { cur = p.set; rows.push([q('Set ' + cur), '', '', '', q('Set ' + cur), '', '']); }
+    const ace = p.serveStatus === '1ST_ACE' || p.serveStatus === '2ND_ACE', df = p.serveStatus === 'DOUBLE_FAULT';
+    let info, out;
+    if (ace) { info = 'ACE'; out = 'W(++)'; }
+    else if (df) { info = 'DF'; out = 'UE(--)'; }
+    else {
+      const err = { Net: 'N', Long: 'L', Wide: 'W' }[p.errorDetail] || '';   // In-bounds -> blank
+      info = [p.hHand || '', (p.stroke || '').charAt(0).toUpperCase(), p.shotDirection || '', p.shotPosition || '', err].join(' ');
+      out = p.outcome || '';
+    }
+    const hitter = (ace || df) ? p.server : p.lastShotPlayer;
+    const cellData = [p.pointNumInSet, q(info), q(out)], blank = ['', '', ''];
+    rows.push(hitter === 'A' ? [...cellData, '', ...blank] : [...blank, '', ...cellData]);
+    if (p.gameScore) rows.push([q(p.gameScore), '', '', '', '', '', '']);   // game score (Player A - Player B)
+  });
+  // Match statistics below the point log
+  const { a: sa, b: sb } = allStats();
+  rows.push([], [q('Match statistics')], ['Stat', q(matchConfig.playerA), q(matchConfig.playerB)]);
+  STAT_ROWS.forEach(([f, k]) => rows.push([q(L[k][0]), q(sa[f]), q(sb[f])]));
+  const csv = '\uFEFF' + rows.map(r => r.join(',')).join('\r\n');
+  downloadCSV(`${matchConfig.name || 'Tennis_Match'}_Detailed_Stats.csv`, csv);
+}
+
+// Phones / tablets: open the system share sheet (save to Files, AirDrop, WeChat, e-mail...), which also works
+// inside an installed home-screen app. Computers (or if sharing fails): normal file download.
+async function downloadCSV(filename, csv) {
+  const touch = window.matchMedia && matchMedia('(pointer: coarse)').matches;
+  if (touch && navigator.canShare) {
+    try {
+      const file = new File([csv], filename, { type: 'text/csv' });
+      if (navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: filename }); return; }
+    } catch (e) { if (e && e.name === 'AbortError') return; }
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+  a.download = filename;
+  a.click();
+}
+
+// Raw data: one row per point, one column per tracker section (1-10) plus context columns, for post-processing.
+// Downloaded on demand and also automatically when the match ends.
+function exportRawData() {
+  const q = s => `"${String(s ?? '').replace(/"/g, '""')}"`;
+  const nm = x => x === 'A' ? matchConfig.playerA : x === 'B' ? matchConfig.playerB : '';
+  const head = ['Match','Player_A','Player_B','Set_Format','Ad_Format','Point_No','Set','Set_Pt_No','Games_Before(A-B)','Points_Before(A-B)','Server',
+    '1_Serve_Result','2_Serve_Placement','3_Last_Ball_By','4_Position','5_H','6_Stroke','7_Direction','8_Out_Reason','9_Outcome',
+    '10_Net_Player_A','10_Net_Player_B','10_Net_Point_Winner','Point_Winner','Game_Score_After(A-B)'];
+  const rows = pointsHistory.map((p, i) => [matchConfig.name, matchConfig.playerA, matchConfig.playerB, matchConfig.format, matchConfig.adMode,
+    i + 1, p.set, p.pointNumInSet, p.gamesBefore, p.pointsBefore, nm(p.server),
+    p.serveStatus, p.servePlacement, nm(p.lastShotPlayer), p.shotPosition, p.hHand, p.stroke, p.shotDirection, p.errorDetail, p.outcome,
+    p.netPlayerA ? 'Y' : 'N', p.netPlayerB ? 'Y' : 'N', (p.netPlayerA || p.netPlayerB) ? (nm(p.netOutcome) || 'None') : '', nm(p.winner), p.gameScore]
+    .map(q).join(','));
+  downloadCSV(`${matchConfig.name || 'Tennis_Match'}_RawData_${new Date().toISOString().slice(0, 10)}.csv`,
+    '\uFEFF' + [head.join(','), ...rows].join('\r\n'));
+}
+
+/* ================= Init ================= */
+showScreen('setup');
+applyLang();
+if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+</script>
+</body>
+</html>
