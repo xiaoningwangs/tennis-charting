@@ -1,5 +1,5 @@
 // Offline support. Bump CACHE_VERSION whenever you publish a new version of the app.
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const CACHE = 'tennis-recorder-' + CACHE_VERSION;
 const SHELL = ['./', './index.html', './manifest.json', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 const TAILWIND = 'https://cdn.tailwindcss.com';   // styling script, cached on first online visit

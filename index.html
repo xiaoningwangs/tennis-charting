@@ -189,6 +189,7 @@ const L = {
   s1:['1. Serve result','1. 发球情况'], s2:['2. Serve placement','2. 发球落点'], s3:['3. Last ball hit by','3. 最后一球击球队员'],
   s4:['4. Position','4. 击球位置'], s5:['5. H (Hand)','5. H（正反手）'], s6:['6. Stroke','6. 击球类型 (Stroke)'],
   s7:['7. Direction / Angle','7. 击球线路'], s8:['8. Out reason / Error detail','8. 出界/失误原因'], s9:['9. Outcome','9. 得分/失误结果'],
+  s2df:['2. Double fault type','2. 双误类型'], aceMsg:['🎾 Ace – server wins the point','🎾 Ace – 发球方直接得分'],
   s10:['10. Net point','10. 上网情况'], s10b:['Net point winner','上网得分归属'],
   df:['DF (Double fault)','DF (双误)'], wide:['Wide','外角'], body:['Body','追身'],
   eIn:['In','In (界内)'], eNet:['Net','Net (挂网)'], eLong:['Long','Long (出底线)'], eWide:['Wide','Wide (出边线)'], none:['None','无'],
@@ -231,14 +232,15 @@ const isMTB = i => F().mtb > 0 && i === 2;
 const newScoreState = () => ({ setsA:[0,0,0], setsB:[0,0,0], tbA:[null,null,null], tbB:[null,null,null], currentSetIdx:0, ptsA:0, ptsB:0,
   isTiebreak:false, tbFirstServer:null, currentServer:matchConfig.firstServer, setFirstServer:matchConfig.firstServer, isMatchOver:false, winner:null });
 let scoreState = newScoreState();
-const DRAFT0 = { serveStatus:'1ST_IN', servePlacement:'BODY', lastShotPlayer:'A', shotPosition:'NR', hHand:'FH', stroke:'Ground',
+const DRAFT0 = { serveNo:'1ST', servePlacement:'B', lastShotPlayer:'A', shotPosition:'NR', hHand:'FH', stroke:'Ground',
   shotDirection:'CC', outcome:'W(++)', errorDetail:'In', netPlayerA:false, netPlayerB:false, netOutcome:'NONE' };
 let draft = { ...DRAFT0 };
 
 /* ================= Option definitions ================= */
 const OPTS = {
-  serveStatus:[['1ST_IN','1st In'],['1ST_ACE','1st Ace'],['2ND_IN','2nd In'],['2ND_ACE','2nd Ace'],['DOUBLE_FAULT','$df']],
-  servePlacement:[['WIDE','$wide'],['BODY','$body'],['T','T']],
+  serveNo:[['1ST','1st'],['2ND','2nd'],['DF','DF']],
+  servePlacement:[['W','W'],['B','B'],['T','T'],['ACE','Ace'],['LET','Let']],       // when the serve was 1st / 2nd
+  dfType:[['WIDE','$eWide'],['LONG','$eLong'],['NET','$eNet']],                      // when the serve was a DF
   lastShotPlayer:[['A','@A'],['B','@B']],
   shotPosition:['NR','OR','DR','Y','G'].map(x => [x, x]),
   hHand:['FH','BH','OH'].map(x => [x, x]),
@@ -248,9 +250,29 @@ const OPTS = {
   outcome:['W(++)','UE(--)','FE(-f)','IP','LET'].map(x => [x, x]),
   netOutcome:[['A','@A'],['B','@B'],['NONE','$none']]
 };
-const SEC = { serveStatus:'s1', servePlacement:'s2', lastShotPlayer:'s3', shotPosition:'s4', hHand:'s5', stroke:'s6', shotDirection:'s7', errorDetail:'s8', outcome:'s9', netOutcome:'s10b' };
-const CLR = { 'DOUBLE_FAULT':'text-red-600 col-span-2', 'W(++)':'text-green-700', 'UE(--)':'text-red-700', 'FE(-f)':'text-orange-700', 'IP':'text-blue-700',
+const SEC = { serveNo:'s1', servePlacement:'s2', lastShotPlayer:'s3', shotPosition:'s4', hHand:'s5', stroke:'s6', shotDirection:'s7', errorDetail:'s8', outcome:'s9', netOutcome:'s10b' };
+const CLR = { 'DF':'text-red-600', 'W(++)':'text-green-700', 'UE(--)':'text-red-700', 'FE(-f)':'text-orange-700', 'IP':'text-blue-700',
   'LET':'text-slate-700 col-span-2', NR:'bg-red-50 text-red-700', OR:'bg-red-50 text-red-700', DR:'bg-red-50 text-red-700', Y:'bg-yellow-50 text-yellow-700', G:'bg-green-50 text-green-700' };
+const DF_TYPES = ['WIDE','LONG','NET'], PLACEMENTS = ['W','B','T','ACE','LET'];
+const serveNoOf = s => s === 'DOUBLE_FAULT' ? 'DF' : String(s).startsWith('2ND') ? '2ND' : '1ST';
+const statusOf = (no, pl) => no === 'DF' ? 'DOUBLE_FAULT' : `${no}_${pl === 'ACE' ? 'ACE' : 'IN'}`;   // internal status used by scoring/stats
+const isAceP = p => /_ACE$/.test(p.serveStatus);
+const serveText = p => ({ '1ST':'1st', '2ND':'2nd', DF:'DF' }[serveNoOf(p.serveStatus)]);
+function normalizeServe(p) {   // also upgrades points saved by the previous version
+  const no = serveNoOf(p.serveStatus);
+  if (no === 'DF') { p.serveStatus = 'DOUBLE_FAULT'; if (!DF_TYPES.includes(p.servePlacement)) p.servePlacement = 'WIDE'; }
+  else if (isAceP(p)) p.servePlacement = 'ACE';
+  else {
+    p.servePlacement = { WIDE:'W', BODY:'B' }[p.servePlacement] || p.servePlacement;
+    if (!PLACEMENTS.includes(p.servePlacement)) p.servePlacement = 'W';
+    if (p.servePlacement === 'ACE') p.serveStatus = `${no}_ACE`;
+  }
+}
+const placeOpts = (no, val) => (no === 'DF' ? OPTS.dfType : OPTS.servePlacement).map(([v, l]) => `<option value="${v}" ${v === val ? 'selected' : ''}>${esc(lab(l))}</option>`).join('');
+function syncEditPlacement(editId) {
+  const ed = $(editId), no = ed.querySelector('[data-history-key="serveNo"]').value, pl = ed.querySelector('[data-history-key="servePlacement"]');
+  pl.innerHTML = placeOpts(no, pl.value);
+}
 const lab = s => s[0] === '$' ? t(s.slice(1)) : s === '@A' ? matchConfig.playerA : s === '@B' ? matchConfig.playerB : s;
 const ttl = k => t(SEC[k]).replace(/^\d+\.\s*/, '');
 
@@ -397,7 +419,7 @@ function applySettings() {
 }
 
 /* ================= Tracker UI ================= */
-const btnGrp = (k, cols) => `<div class="grid grid-cols-${cols} gap-1.5 text-xs">` + OPTS[k].map(([v, l]) =>
+const btnGrp = (k, cols, opts = OPTS[k]) => `<div class="grid grid-cols-${cols} gap-1.5 text-xs">` + opts.map(([v, l]) =>
   `<button type="button" data-k="${k}" data-v="${v}" onclick="setDraft('${k}','${v}')" class="p-2 border rounded-lg font-bold ${CLR[v] || ''}">${esc(lab(l))}</button>`).join('') + '</div>';
 const secLbl = 'block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5';
 const sec = (k, cols) => `<div><label class="${secLbl}">${t(SEC[k])}</label>${btnGrp(k, cols)}</div>`;
@@ -408,8 +430,8 @@ function renderTracker() {
       <div>${t('server')}: <span id="srv-name" class="text-blue-700 font-extrabold"></span></div>
       <div>${t('court')}: <span id="srv-court" class="text-slate-700 font-bold"></span></div>
     </div>
-    ${sec('serveStatus', 2)}
-    ${sec('servePlacement', 3)}
+    ${sec('serveNo', 3)}
+    <div id="placement-box"></div>
     <div id="shot-details-box" class="space-y-4 pt-3 border-t border-slate-100">
       ${sec('lastShotPlayer', 2)}
       ${sec('shotPosition', 5)}
@@ -432,13 +454,25 @@ function renderTracker() {
       </div>
     </div>
     <button onclick="submitPoint()" class="w-full py-3.5 bg-green-600 text-white rounded-xl font-bold text-sm shadow hover:bg-green-700 transition">${t('submit')}</button>`;
-  updateDraftUI();
+  renderPlacement(); updateDraftUI();
 }
 
 function toggleNetPlayer(p) { draft['netPlayer' + p] = !draft['netPlayer' + p]; updateDraftUI(); }
 
+// Section 2: W / B / T / Ace / Let for a 1st or 2nd serve; Wide / Long / Net after a double fault
+function renderPlacement() {
+  const box = $('placement-box'); if (!box) return;
+  const df = draft.serveNo === 'DF';
+  box.innerHTML = `<label class="${secLbl}">${t(df ? 's2df' : 's2')}</label>` + btnGrp('servePlacement', df ? 3 : 5, df ? OPTS.dfType : OPTS.servePlacement);
+}
+
 function setDraft(k, v) {
   draft[k] = v;
+  if (k === 'serveNo') {
+    if (v === 'DF' && !DF_TYPES.includes(draft.servePlacement)) draft.servePlacement = 'WIDE';
+    if (v !== 'DF' && DF_TYPES.includes(draft.servePlacement)) draft.servePlacement = DRAFT0.servePlacement;
+    renderPlacement();
+  }
   if (k === 'outcome') outcomeManual = true;
   // In -> default W(++); Net/Long/Wide -> default UE(--), unless the user picked an outcome themselves
   if (k === 'errorDetail' && !outcomeManual) draft.outcome = v === 'In' ? 'W(++)' : 'UE(--)';
@@ -449,7 +483,7 @@ function updateDraftUI() {
   if (!draft.netPlayerA && !draft.netPlayerB) draft.netOutcome = 'NONE';
   document.querySelectorAll('#draft-panel [data-k]').forEach(b => b.classList.toggle('btn-active', String(draft[b.dataset.k]) === b.dataset.v));
   const box = $('shot-details-box');
-  if (box) box.style.display = draft.serveStatus === 'DOUBLE_FAULT' ? 'none' : 'block';
+  if (box) box.style.display = (draft.serveNo === 'DF' || draft.servePlacement === 'ACE') ? 'none' : 'block';   // DF / Ace: sections 3-10 collapse
   ['A','B'].forEach(p => {
     const b = $('net-btn-' + p), c = $('net-chk-' + p); if (!b) return;
     const on = draft['netPlayer' + p];
@@ -489,26 +523,28 @@ function applyPoint(p) {
 
 function submitPoint() {
   if (scoreState.isMatchOver) { alert(t('alreadyOver')); return; }
-  const isDF = draft.serveStatus === 'DOUBLE_FAULT';
-  const isAce = draft.serveStatus === '1ST_ACE' || draft.serveStatus === '2ND_ACE';
-  const winner = determineWinnerFromRecord({ serveStatus: draft.serveStatus, lastShotPlayer: draft.lastShotPlayer, outcome: draft.outcome }, scoreState.currentServer);
+  const isDF = draft.serveNo === 'DF';
+  const isAce = !isDF && draft.servePlacement === 'ACE';       // Ace: the server wins the point
+  const noRally = isDF || isAce;
+  const serveStatus = statusOf(draft.serveNo, draft.servePlacement);
+  const winner = determineWinnerFromRecord({ serveStatus, lastShotPlayer: draft.lastShotPlayer, outcome: draft.outcome }, scoreState.currentServer);
   const setNum = scoreState.currentSetIdx + 1;
-  const hasNet = draft.netPlayerA || draft.netPlayerB;
+  const hasNet = !noRally && (draft.netPlayerA || draft.netPlayerB);
 
   pointsHistory.push({
     id: Date.now(), set: setNum,
     pointNumInSet: pointsHistory.filter(p => p.set === setNum).length + 1,
     pointNumOverall: pointsHistory.length + 1,
     server: scoreState.currentServer, receiver: other(scoreState.currentServer),
-    serveStatus: draft.serveStatus, servePlacement: draft.servePlacement,
-    lastShotPlayer: isDF ? null : draft.lastShotPlayer,
-    triggerPlayer: (isAce || isDF) ? scoreState.currentServer : draft.lastShotPlayer,
+    serveStatus, servePlacement: draft.servePlacement,
+    lastShotPlayer: noRally ? null : draft.lastShotPlayer,
+    triggerPlayer: noRally ? scoreState.currentServer : draft.lastShotPlayer,
     triggerAction: isAce ? 'ACE' : isDF ? 'DOUBLE_FAULT' : draft.outcome,
-    shotPosition: isDF ? null : draft.shotPosition, hHand: isDF ? null : draft.hHand,
-    stroke: isDF ? null : draft.stroke, shotDirection: isDF ? null : draft.shotDirection,
-    outcome: isDF ? 'UE(--)' : draft.outcome,
-    errorDetail: isDF ? 'Double Fault' : draft.errorDetail,
-    netPlayerA: draft.netPlayerA, netPlayerB: draft.netPlayerB,
+    shotPosition: noRally ? null : draft.shotPosition, hHand: noRally ? null : draft.hHand,
+    stroke: noRally ? null : draft.stroke, shotDirection: noRally ? null : draft.shotDirection,
+    outcome: isDF ? 'UE(--)' : isAce ? 'W(++)' : draft.outcome,
+    errorDetail: isDF ? 'Double Fault' : isAce ? 'In' : draft.errorDetail,
+    netPlayerA: hasNet && draft.netPlayerA, netPlayerB: hasNet && draft.netPlayerB,
     netOutcome: hasNet ? draft.netOutcome : 'NONE', winner
   });
 
@@ -639,7 +675,7 @@ function renderHistoryTab() {
     const i = pointsHistory.length - 1 - idx, editId = `history-edit-${p.id}`;
     const sName = p.server === 'A' ? matchConfig.playerA : matchConfig.playerB;
     const wName = p.winner === 'A' ? matchConfig.playerA : matchConfig.playerB;
-    const isDF = p.serveStatus === 'DOUBLE_FAULT';
+    const isDF = p.serveStatus === 'DOUBLE_FAULT', isAce = isAceP(p), no = serveNoOf(p.serveStatus);
     return `
       <div class="p-3 bg-white border border-slate-200 rounded-xl shadow-sm space-y-2 text-xs">
         <div class="flex justify-between items-center border-b pb-1 text-[11px] text-slate-400">
@@ -647,16 +683,21 @@ function renderHistoryTab() {
           <button onclick="toggleHistoryEditor('${editId}')" class="text-blue-600 font-bold hover:underline">${t('edit')}</button>
         </div>
         <div class="flex justify-between font-bold text-slate-800">
-          <span>${t('serving')}: ${esc(sName)} [${p.serveStatus}]</span>
+          <span>${t('serving')}: ${esc(sName)} [${serveText(p)} · ${p.servePlacement}]</span>
           <span class="text-green-600">${t('won')}: ${esc(wName)}</span>
         </div>
-        ${isDF ? `<div class="text-red-600 font-bold">${t('dfMsg')}</div>` : `
+        ${isDF ? `<div class="text-red-600 font-bold">${t('dfMsg')}</div>` : isAce ? `<div class="text-green-600 font-bold">${t('aceMsg')}</div>` : `
           <div class="text-slate-600 text-[11px]">
             ${esc(p.lastShotPlayer === 'A' ? matchConfig.playerA : matchConfig.playerB)} | Pos: <strong>${p.shotPosition || '-'}</strong> | H: <strong>${p.hHand || '-'}</strong> | Stroke: <strong>${p.stroke || '-'}</strong> | Dir: <strong>${p.shotDirection || '-'}</strong> | ${p.errorDetail || 'In'} | <strong class="text-blue-600">${p.outcome || '-'}</strong>
           </div>`}
         <div id="${editId}" class="hidden mt-2 pt-2 border-t border-slate-100 bg-slate-50 rounded-lg p-2.5 space-y-2">
-          ${o('serveStatus', p, '1ST_IN')}
-          ${o('servePlacement', p, 'WIDE')}
+          <div class="grid grid-cols-2 gap-2">
+            <label class="block"><span class="block text-[10px] font-bold text-slate-500 mb-1">${ttl('serveNo')}</span>
+              <select data-history-key="serveNo" onchange="syncEditPlacement('${editId}')" class="w-full p-2 bg-white border border-slate-200 rounded-lg text-[11px]">
+                ${OPTS.serveNo.map(([v, l]) => `<option value="${v}" ${v === no ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+            <label class="block"><span class="block text-[10px] font-bold text-slate-500 mb-1">${ttl('servePlacement')}</span>
+              <select data-history-key="servePlacement" class="w-full p-2 bg-white border border-slate-200 rounded-lg text-[11px]">${placeOpts(no, p.servePlacement)}</select></label>
+          </div>
           <div class="grid grid-cols-2 gap-2">${o('lastShotPlayer', p, 'A')}${o('shotPosition', p, 'NR')}</div>
           <div class="grid grid-cols-2 gap-2">${o('hHand', p, 'FH')}${o('stroke', p, 'Ground')}</div>
           <div class="grid grid-cols-2 gap-2">${o('shotDirection', p, 'CC')}${o('errorDetail', p, 'In')}</div>
@@ -683,7 +724,8 @@ function saveHistoryPoint(index) {
   const p = pointsHistory[index]; if (!p) return;
   const editId = `history-edit-${p.id}`, editor = $(editId); if (!editor) return;
   const get = k => editor.querySelector(`[data-history-key="${k}"]`)?.value;
-  ['serveStatus','servePlacement','lastShotPlayer','shotPosition','hHand','stroke','shotDirection','errorDetail','outcome'].forEach(k => p[k] = get(k));
+  p.servePlacement = get('servePlacement'); p.serveStatus = statusOf(get('serveNo'), p.servePlacement);
+  ['lastShotPlayer','shotPosition','hHand','stroke','shotDirection','errorDetail','outcome'].forEach(k => p[k] = get(k));
   p.netPlayerA = $(`${editId}-net-a`)?.checked || false;
   p.netPlayerB = $(`${editId}-net-b`)?.checked || false;
   p.netOutcome = get('netOutcome') || 'NONE';
@@ -702,7 +744,8 @@ function recalculateMatchFromHistory() {
   records.forEach((p, index) => {
     if (scoreState.isMatchOver) return;
     const setNum = scoreState.currentSetIdx + 1, server = scoreState.currentServer;
-    const isAce = p.serveStatus === '1ST_ACE' || p.serveStatus === '2ND_ACE';
+    normalizeServe(p);
+    const isAce = isAceP(p);
     p.id = p.id || Date.now() + index;
     p.set = setNum;
     p.pointNumInSet = records.slice(0, index).filter(x => x.set === setNum).length + 1;
@@ -711,7 +754,10 @@ function recalculateMatchFromHistory() {
 
     if (p.serveStatus === 'DOUBLE_FAULT') {
       Object.assign(p, { lastShotPlayer: null, triggerPlayer: server, triggerAction: 'DOUBLE_FAULT', shotPosition: null,
-        hHand: null, stroke: null, shotDirection: null, outcome: 'UE(--)', errorDetail: 'Double Fault' });
+        hHand: null, stroke: null, shotDirection: null, outcome: 'UE(--)', errorDetail: 'Double Fault', netPlayerA: false, netPlayerB: false });
+    } else if (isAce) {
+      Object.assign(p, { lastShotPlayer: null, triggerPlayer: server, triggerAction: 'ACE', shotPosition: null,
+        hHand: null, stroke: null, shotDirection: null, outcome: 'W(++)', errorDetail: 'In', netPlayerA: false, netPlayerB: false });
     } else {
       p.errorDetail = (p.errorDetail && p.errorDetail !== 'None' && p.errorDetail !== 'Double Fault') ? p.errorDetail : 'In';
       p.triggerPlayer = isAce ? server : p.lastShotPlayer;
@@ -734,10 +780,11 @@ function calculatePlayerStats(k) {
   const pct = (n, d) => d > 0 ? Math.round(n / d * 100) : 0;
   const first = sp.filter(p => p.serveStatus === '1ST_IN' || p.serveStatus === '1ST_ACE');
   const secondIn = sp.filter(p => p.serveStatus === '2ND_IN' || p.serveStatus === '2ND_ACE');
+  const secondAll = sp.filter(p => ['2ND_IN','2ND_ACE','DOUBLE_FAULT'].includes(p.serveStatus));   // 2nd serve count = 2nd in + double faults
   const f1w = first.filter(p => p.winner === k).length, f2w = secondIn.filter(p => p.winner === k).length;
 
   const aces = sp.filter(p => p.serveStatus === '1ST_ACE' || p.serveStatus === '2ND_ACE').length;
-  const shot = o => pointsHistory.filter(p => p.serveStatus !== 'DOUBLE_FAULT' && p.lastShotPlayer === k && p.outcome === o).length;
+  const shot = o => pointsHistory.filter(p => p.serveStatus !== 'DOUBLE_FAULT' && !isAceP(p) && p.lastShotPlayer === k && p.outcome === o).length;
   const dfs = sp.filter(p => p.serveStatus === 'DOUBLE_FAULT').length;
 
   const net = pointsHistory.filter(p => k === 'A' ? p.netPlayerA : p.netPlayerB);
@@ -746,7 +793,7 @@ function calculatePlayerStats(k) {
   return {
     firstServeInStr: `${pct(first.length, sp.length)}% (${first.length}/${sp.length})`,
     firstServeWonStr: `${pct(f1w, first.length)}% (${f1w}/${first.length})`,
-    secondServeInStr: `${pct(secondIn.length, sp.length)}% (${secondIn.length}/${sp.length})`,  // 2nd In / total serve points
+    secondServeInStr: `${pct(secondIn.length, secondAll.length)}% (${secondIn.length}/${secondAll.length})`,   // 2nd serve in / 2nd serve count
     secondServeWonStr: `${pct(f2w, secondIn.length)}% (${f2w}/${secondIn.length})`,
     winnersCount: aces + shot('W(++)'), forcedErrors: shot('FE(-f)'), unforcedErrors: dfs + shot('UE(--)'), dfCount: dfs, ipCount: shot('IP'),
     netPointsCount: net.length, netPointsWonStr: `${netWon}/${net.length} (${pct(netWon, net.length)}%)`
@@ -828,11 +875,11 @@ function exportRawData() {
   const q = s => `"${String(s ?? '').replace(/"/g, '""')}"`;
   const nm = x => x === 'A' ? matchConfig.playerA : x === 'B' ? matchConfig.playerB : '';
   const head = ['Match','Player_A','Player_B','Set_Format','Ad_Format','Point_No','Set','Set_Pt_No','Games_Before(A-B)','Points_Before(A-B)','Server',
-    '1_Serve_Result','2_Serve_Placement','3_Last_Ball_By','4_Position','5_H','6_Stroke','7_Direction','8_Out_Reason','9_Outcome',
+    '1_Serve_Result','2_Serve_Placement/DF_Type','3_Last_Ball_By','4_Position','5_H','6_Stroke','7_Direction','8_Out_Reason','9_Outcome',
     '10_Net_Player_A','10_Net_Player_B','10_Net_Point_Winner','Point_Winner','Game_Score_After(A-B)'];
   const rows = pointsHistory.map((p, i) => [matchConfig.name, matchConfig.playerA, matchConfig.playerB, matchConfig.format, matchConfig.adMode,
     i + 1, p.set, p.pointNumInSet, p.gamesBefore, p.pointsBefore, nm(p.server),
-    p.serveStatus, p.servePlacement, nm(p.lastShotPlayer), p.shotPosition, p.hHand, p.stroke, p.shotDirection, p.errorDetail, p.outcome,
+    serveText(p), p.servePlacement, nm(p.lastShotPlayer), p.shotPosition, p.hHand, p.stroke, p.shotDirection, p.errorDetail, p.outcome,
     p.netPlayerA ? 'Y' : 'N', p.netPlayerB ? 'Y' : 'N', (p.netPlayerA || p.netPlayerB) ? (nm(p.netOutcome) || 'None') : '', nm(p.winner), p.gameScore]
     .map(q).join(','));
   downloadCSV(`${matchConfig.name || 'Tennis_Match'}_RawData_${new Date().toISOString().slice(0, 10)}.csv`,
